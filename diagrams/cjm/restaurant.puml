@@ -1,0 +1,26 @@
+@startuml RestaurantCJM
+!theme plain
+title CJM заведения Авито.Кухни
+start
+:Получить API key и webhook secret;
+:Опубликовать меню с возрастающей revision;
+:Обновлять цены и доступность;
+:Получить подписанный order.created webhook;
+:Проверить timestamp, HMAC и event_id;
+if (Событие уже обработано?) then (да)
+  :Вернуть 2xx без повторной обработки;
+  stop
+endif
+:Сохранить заказ;
+if (Можно выполнить заказ?) then (да)
+  :Перевести в accepted;
+  :accepted → preparing;
+  :preparing → ready_for_delivery;
+  :ready_for_delivery → delivering;
+  :delivering → delivered;
+else (нет)
+  :Перевести в rejected с причиной;
+endif
+stop
+@enduml
+

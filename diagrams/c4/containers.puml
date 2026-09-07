@@ -1,0 +1,36 @@
+@startuml AvitoKitchenContainers
+!theme plain
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam defaultTextAlignment center
+
+title Авито.Кухня — C4 Level 2 / Containers
+
+actor "Пользователь" as customer
+actor "Оператор заведения" as operator
+
+rectangle "Авито.Кухня" {
+  component "Kitchen API\n[Go, HTTP/JSON]\nКаталог, корзина, заказы, partner API" as api
+  component "Outbox Worker\n[Go]\nНадёжная доставка событий" as worker
+  database "Kitchen DB\n[PostgreSQL]\nКаталог, корзины, заказы, outbox" as db
+}
+
+rectangle "Демо Кафе" {
+  component "Restaurant Service\n[Go, HTTP/JSON]\nМеню, приём и обработка заказов" as restaurant
+  database "Restaurant State\n[MVP: memory]\nПолученные события и заказы" as restaurantdb
+}
+
+customer --> api : Просматривает меню,\nсоздаёт и отслеживает заказ
+operator --> restaurant : Управляет наличием\nи статусами
+api --> db : SQL
+worker --> db : Читает outbox
+worker --> restaurant : Подписанный webhook, HTTPS
+restaurant --> api : Partner API, API key
+restaurant --> restaurantdb : Читает / записывает
+
+note bottom of restaurantdb
+  Для production локальное состояние ресторана
+  должно храниться в собственной БД.
+end note
+@enduml
+

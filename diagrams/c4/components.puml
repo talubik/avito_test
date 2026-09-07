@@ -1,0 +1,22 @@
+@startuml KitchenComponents
+!theme plain
+skinparam componentStyle rectangle
+skinparam shadowing false
+title Kitchen API — C4 Level 3 / Components
+
+component "Customer HTTP handlers" as customer
+component "Partner HTTP handlers" as partner
+component "Application rules\ncheckout / status state machine" as app
+component "PostgreSQL store" as store
+component "Outbox dispatcher" as outbox
+database PostgreSQL as db
+component "Restaurant webhook" as webhook
+
+customer --> app
+partner --> app
+app --> store
+store --> db
+outbox --> db : Claim with SKIP LOCKED
+outbox --> webhook : HMAC-signed event
+@enduml
+

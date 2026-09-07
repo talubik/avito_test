@@ -1,0 +1,110 @@
+name: avito-kitchen
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: kitchen
+      POSTGRES_PASSWORD: kitchen
+      POSTGRES_DB: kitchen
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kitchen -d kitchen"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  migrate:
+    image: migrate/migrate:v4.18.3
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./services/kitchen/migrations:/migrations:ro
+    command: ["-path", "/migrations", "-database", "postgres://kitchen:kitchen@postgres:5432/kitchen?sslmode=disable", "up"]
+    restart: "no"
+
+  kitchen-api:
+    build:
+      context: ./services/kitchen
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgres://kitchen:kitchen@postgres:5432/kitchen?sslmode=disable
+      HTTP_ADDR: :8080
+      PARTNER_API_KEY: demo-partner-key-change-me
+      DEMO_RESTAURANT_WEBHOOK_SECRET: demo-webhook-secret-change-me
+    healthcheck:
+      test: ["CMD", "/app/kitchen", "healthcheck", "http://localhost:8080/health/ready"]
+      interval: 3s
+      timeout: 2s
+      retries: 20
+    ports:
+      - "8080:8080"
+
+  kitchen-worker:
+    build:
+      context: ./services/kitchen
+    depends_on:
+      kitchen-api:
+        condition: service_healthy
+    entrypoint: ["/app/worker"]
+    environment:
+      DATABASE_URL: postgres://kitchen:kitchen@postgres:5432/kitchen?sslmode=disable
+      WORKER_POLL_INTERVAL: 1s
+      DEMO_RESTAURANT_WEBHOOK_SECRET: demo-webhook-secret-change-me
+
+  demo-restaurant:
+    build:
+      context: ./services/demo-restaurant
+    depends_on:
+      kitchen-api:
+        condition: service_healthy
+    environment:
+      HTTP_ADDR: :8081
+      KITCHEN_API_URL: http://kitchen-api:8080
+      PARTNER_API_KEY: demo-partner-key-change-me
+      WEBHOOK_SECRET: demo-webhook-secret-change-me
+    ports:
+      - "8081:8081"
+
+  postgres-test:
+    image: postgres:17-alpine
+    profiles: ["test"]
+    environment:
+      POSTGRES_USER: kitchen_test
+      POSTGRES_PASSWORD: kitchen_test
+      POSTGRES_DB: kitchen_test
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kitchen_test -d kitchen_test"]
+      interval: 1s
+      timeout: 2s
+      retries: 30
+    tmpfs:
+      - /var/lib/postgresql/data
+
+  migrate-test:
+    image: migrate/migrate:v4.18.3
+    profiles: ["test"]
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+    volumes:
+      - ./services/kitchen/migrations:/migrations:ro
+    command: ["-path", "/migrations", "-database", "postgres://kitchen_test:kitchen_test@postgres-test:5432/kitchen_test?sslmode=disable", "up"]
+
+  kitchen-tests:
+    profiles: ["test"]
+    build:
+      context: ./services/kitchen
+      target: test
+    environment:
+      TEST_DATABASE_URL: postgres://kitchen_test:kitchen_test@postgres-test:5432/kitchen_test?sslmode=disable
+    command: ["go", "test", "-tags=integration", "-race", "-cover", "-p=1", "./..."]
+
+volumes:
+  postgres-data:
