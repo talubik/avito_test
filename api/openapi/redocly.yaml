@@ -1,0 +1,11 @@
+extends:
+  - recommended
+
+rules:
+  # The assignment repository has no selected distribution license yet.
+  info-license: off
+  # Both specifications intentionally describe the local Docker Compose URLs.
+  no-server-example.com: off
+  # Health checks and read-only collection endpoints have no meaningful 4xx case.
+  operation-4xx-response: off
+

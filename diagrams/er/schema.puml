@@ -1,0 +1,96 @@
+@startuml KitchenER
+!theme plain
+hide methods
+hide stereotypes
+title Авито.Кухня — ER diagram
+
+entity establishments {
+  * id : uuid <<PK>>
+  --
+  external_id : text <<UK>>
+  slug : text <<UK>>
+  status : enum
+  accepts_orders : boolean
+  webhook_url : text
+}
+entity partner_credentials {
+  * id : uuid <<PK>>
+  --
+  establishment_id : uuid <<FK>>
+  key_hash : char(64) <<UK>>
+}
+entity menu_categories {
+  * id : uuid <<PK>>
+  --
+  establishment_id : uuid <<FK>>
+  external_id : text
+}
+entity menu_items {
+  * id : uuid <<PK>>
+  --
+  establishment_id : uuid <<FK>>
+  category_id : uuid <<FK>>
+  external_id : text
+  price_minor : bigint
+  revision : bigint
+}
+entity carts {
+  * id : uuid <<PK>>
+  --
+  user_id : text
+  establishment_id : uuid <<FK>>
+  status : enum
+}
+entity cart_items {
+  * cart_id : uuid <<PK,FK>>
+  * menu_item_id : uuid <<PK,FK>>
+  --
+  quantity : int
+}
+entity orders {
+  * id : uuid <<PK>>
+  --
+  user_id : text
+  establishment_id : uuid <<FK>>
+  source_cart_id : uuid <<FK>>
+  status : enum
+  idempotency_key : text
+}
+entity order_items {
+  * id : uuid <<PK>>
+  --
+  order_id : uuid <<FK>>
+  menu_item_id : uuid <<FK>>
+  name : text <<snapshot>>
+  unit_price_minor : bigint <<snapshot>>
+}
+entity order_status_history {
+  * id : bigint <<PK>>
+  --
+  order_id : uuid <<FK>>
+  from_status : enum
+  to_status : enum
+}
+entity outbox_events {
+  * id : uuid <<PK>>
+  --
+  aggregate_id : uuid
+  payload : jsonb
+  delivered_at : timestamptz
+}
+
+establishments ||--o{ partner_credentials
+establishments ||--o{ menu_categories
+establishments ||--o{ menu_items
+menu_categories |o--o{ menu_items
+establishments ||--o{ carts
+carts ||--o{ cart_items
+menu_items ||--o{ cart_items
+establishments ||--o{ orders
+carts |o--o| orders
+orders ||--|{ order_items
+menu_items |o--o{ order_items
+orders ||--|{ order_status_history
+orders ||--o{ outbox_events : aggregate
+@enduml
+

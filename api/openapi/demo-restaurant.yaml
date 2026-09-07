@@ -1,0 +1,167 @@
+openapi: 3.0.3
+info:
+  title: Demo Restaurant API
+  version: 0.1.0
+  description: Management and webhook API of the independently deployed demo establishment.
+servers:
+  - url: http://localhost:8081
+security: []
+paths:
+  /health/live:
+    get:
+      summary: Check demo restaurant liveness
+      operationId: restaurantLive
+      responses:
+        '200': {description: Process is alive}
+  /v1/menu:
+    get:
+      summary: Get the restaurant-owned menu
+      operationId: getRestaurantMenu
+      responses:
+        '200':
+          description: Restaurant-owned menu
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/MenuItem'}}
+  /v1/menu/{externalId}/availability:
+    parameters:
+      - name: externalId
+        in: path
+        required: true
+        schema: {type: string}
+    patch:
+      summary: Change and synchronize item availability
+      operationId: setAvailability
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [is_available]
+              properties:
+                is_available: {type: boolean}
+      responses:
+        '200':
+          description: Updated and synchronized item
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MenuItem'}
+        '404': {description: Unknown menu item}
+        '502': {description: Kitchen API is unavailable}
+  /v1/orders:
+    get:
+      summary: List locally received orders
+      operationId: getRestaurantOrders
+      responses:
+        '200':
+          description: Locally received orders
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/Order'}}
+  /v1/orders/{orderId}:
+    parameters:
+      - $ref: '#/components/parameters/OrderId'
+    get:
+      summary: Get a locally received order
+      operationId: getRestaurantOrder
+      responses:
+        '200':
+          description: Local order
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Order'}
+        '404': {description: Unknown order}
+  /v1/orders/{orderId}/status:
+    parameters:
+      - $ref: '#/components/parameters/OrderId'
+    post:
+      summary: Update an order status through Kitchen API
+      operationId: setRestaurantOrderStatus
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [accepted, rejected, preparing, ready_for_delivery, delivering, delivered]
+                reason: {type: string}
+      responses:
+        '200':
+          description: Status synchronized with Kitchen
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Order'}
+        '502': {description: Kitchen API rejected the update or is unavailable}
+  /webhooks/v1/orders:
+    post:
+      summary: Consume a signed Kitchen order event
+      operationId: consumeKitchenOrderEvent
+      parameters:
+        - {name: X-Webhook-Timestamp, in: header, required: true, schema: {type: string}}
+        - {name: X-Webhook-Signature, in: header, required: true, schema: {type: string}}
+        - {name: X-Event-ID, in: header, required: true, schema: {type: string, format: uuid}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [event_id, event_type, order]
+              properties:
+                event_id: {type: string, format: uuid}
+                event_type: {type: string, enum: [order.created]}
+                order: {$ref: '#/components/schemas/Order'}
+      responses:
+        '202': {description: Event stored}
+        '200': {description: Duplicate event already processed}
+        '401': {description: Invalid or expired HMAC signature}
+components:
+  parameters:
+    OrderId:
+      name: orderId
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+  schemas:
+    MenuItem:
+      type: object
+      required: [external_id, category, name, price_minor, currency, is_available, revision]
+      properties:
+        external_id: {type: string}
+        category: {type: string}
+        name: {type: string}
+        description: {type: string}
+        price_minor: {type: integer, format: int64}
+        currency: {type: string}
+        is_available: {type: boolean}
+        revision: {type: integer, format: int64}
+    Order:
+      type: object
+      required: [id, status, items, total_minor, currency]
+      properties:
+        id: {type: string, format: uuid}
+        status: {type: string}
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              external_item_id: {type: string}
+              name: {type: string}
+              quantity: {type: integer}
+        total_minor: {type: integer, format: int64}
+        currency: {type: string}
+        delivery_address: {type: object, additionalProperties: true}
+        customer_phone: {type: string}
+        customer_comment: {type: string}

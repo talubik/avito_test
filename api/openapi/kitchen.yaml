@@ -1,0 +1,434 @@
+openapi: 3.0.3
+info:
+  title: Avito Kitchen API
+  version: 0.1.0
+  description: |
+    MVP API for customers and integrated establishments. Customer authentication
+    is outside this service; in the demo X-User-ID represents the trusted identity
+    injected by an upstream gateway.
+servers:
+  - url: http://localhost:8080
+security: []
+tags:
+  - name: Catalogue
+    description: Public establishment and menu discovery.
+  - name: Cart
+    description: Customer cart operations scoped by the trusted user identifier.
+  - name: Orders
+    description: Customer checkout and order tracking.
+  - name: Partner
+    description: API available to pre-approved establishments.
+paths:
+  /health/live:
+    get:
+      summary: Check process liveness
+      operationId: live
+      responses:
+        '200': {description: Process is alive}
+  /health/ready:
+    get:
+      summary: Check service readiness
+      operationId: ready
+      responses:
+        '200': {description: Service is ready}
+        '503': {$ref: '#/components/responses/Problem'}
+  /v1/establishments:
+    get:
+      summary: List active establishments
+      tags: [Catalogue]
+      operationId: listEstablishments
+      responses:
+        '200':
+          description: Active establishments
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: {$ref: '#/components/schemas/Establishment'}
+  /v1/establishments/{establishmentId}/menu:
+    parameters:
+      - $ref: '#/components/parameters/EstablishmentId'
+    get:
+      summary: List an establishment menu
+      tags: [Catalogue]
+      operationId: listMenu
+      parameters:
+        - name: available
+          in: query
+          schema: {type: boolean, default: true}
+      responses:
+        '200':
+          description: Establishment menu
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: {$ref: '#/components/schemas/MenuItem'}
+  /v1/cart:
+    get:
+      summary: Get the active customer cart
+      tags: [Cart]
+      operationId: getCart
+      parameters: [{$ref: '#/components/parameters/UserId'}]
+      responses:
+        '200':
+          description: Active cart or an empty cart
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Cart'}
+        '400': {$ref: '#/components/responses/Problem'}
+  /v1/cart/items:
+    post:
+      summary: Add an item to the customer cart
+      tags: [Cart]
+      operationId: addCartItem
+      parameters: [{$ref: '#/components/parameters/UserId'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [menu_item_id, quantity]
+              properties:
+                menu_item_id: {type: string, format: uuid}
+                quantity: {type: integer, minimum: 1, maximum: 99}
+      responses:
+        '200':
+          description: Updated cart
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Cart'}
+        '400': {$ref: '#/components/responses/Problem'}
+        '409': {$ref: '#/components/responses/Problem'}
+  /v1/cart/items/{itemId}:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+      - name: itemId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    patch:
+      summary: Change cart item quantity
+      tags: [Cart]
+      operationId: updateCartItem
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [quantity]
+              properties:
+                quantity: {type: integer, minimum: 1, maximum: 99}
+      responses:
+        '200':
+          description: Updated cart
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Cart'}
+        '404': {$ref: '#/components/responses/Problem'}
+    delete:
+      summary: Remove an item from the cart
+      tags: [Cart]
+      operationId: deleteCartItem
+      responses:
+        '204': {description: Item removed}
+        '404': {$ref: '#/components/responses/Problem'}
+  /v1/orders:
+    get:
+      summary: List customer orders
+      tags: [Orders]
+      operationId: listCustomerOrders
+      parameters: [{$ref: '#/components/parameters/UserId'}]
+      responses:
+        '200':
+          description: Customer orders
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/Order'}}
+    post:
+      summary: Create an order from the active cart
+      tags: [Orders]
+      operationId: checkout
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [delivery_address, customer_phone]
+              properties:
+                delivery_address:
+                  type: object
+                  additionalProperties: true
+                  example: {city: Москва, street: Лесная, house: '7', apartment: '12'}
+                customer_phone: {type: string, minLength: 5, maxLength: 32}
+                comment: {type: string, maxLength: 500}
+      responses:
+        '201':
+          description: Order created or an idempotent replay returned
+          headers:
+            Idempotent-Replayed:
+              schema: {type: boolean}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Order'}
+        '409': {$ref: '#/components/responses/Problem'}
+  /v1/orders/{orderId}:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+      - $ref: '#/components/parameters/OrderId'
+    get:
+      summary: Get a customer order
+      tags: [Orders]
+      operationId: getCustomerOrder
+      responses:
+        '200':
+          description: Order
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Order'}
+        '404': {$ref: '#/components/responses/Problem'}
+  /v1/orders/{orderId}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+      - $ref: '#/components/parameters/OrderId'
+    post:
+      summary: Cancel a pending customer order
+      tags: [Orders]
+      operationId: cancelOrder
+      responses:
+        '200':
+          description: Cancelled order
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Order'}
+        '409': {$ref: '#/components/responses/Problem'}
+  /partner/v1/menu/items/{externalId}:
+    parameters:
+      - name: externalId
+        in: path
+        required: true
+        schema: {type: string, maxLength: 128}
+    put:
+      summary: Create or update a menu item projection
+      tags: [Partner]
+      operationId: upsertPartnerMenuItem
+      security: [{partnerApiKey: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PartnerMenuItem'}
+      responses:
+        '200':
+          description: Current item projection
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MenuItem'}
+        '401': {$ref: '#/components/responses/Problem'}
+        '409': {$ref: '#/components/responses/Problem'}
+  /partner/v1/orders:
+    get:
+      summary: List orders for the authenticated establishment
+      tags: [Partner]
+      operationId: listPartnerOrders
+      security: [{partnerApiKey: []}]
+      responses:
+        '200':
+          description: Orders belonging to the authenticated establishment
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/Order'}}
+        '401': {$ref: '#/components/responses/Problem'}
+  /partner/v1/orders/{orderId}:
+    parameters: [{$ref: '#/components/parameters/OrderId'}]
+    get:
+      summary: Get an establishment order
+      tags: [Partner]
+      operationId: getPartnerOrder
+      security: [{partnerApiKey: []}]
+      responses:
+        '200':
+          description: Establishment order
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Order'}
+        '404': {$ref: '#/components/responses/Problem'}
+  /partner/v1/orders/{orderId}/status:
+    parameters: [{$ref: '#/components/parameters/OrderId'}]
+    post:
+      summary: Update an establishment order status
+      tags: [Partner]
+      operationId: updatePartnerOrderStatus
+      security: [{partnerApiKey: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [accepted, rejected, preparing, ready_for_delivery, delivering, delivered]
+                reason: {type: string, maxLength: 500}
+      responses:
+        '200':
+          description: Updated order
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Order'}
+        '409': {$ref: '#/components/responses/Problem'}
+components:
+  securitySchemes:
+    partnerApiKey:
+      type: http
+      scheme: bearer
+      description: High-entropy API key issued to a pre-approved establishment.
+  parameters:
+    UserId:
+      name: X-User-ID
+      in: header
+      required: true
+      description: Trusted external Avito user identifier in this MVP.
+      schema: {type: string, minLength: 1, maxLength: 128}
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: {type: string, minLength: 1, maxLength: 128}
+    EstablishmentId:
+      name: establishmentId
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    OrderId:
+      name: orderId
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+  responses:
+    Problem:
+      description: RFC 7807 compatible error
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
+  schemas:
+    Establishment:
+      type: object
+      required: [id, slug, name, accepts_orders, min_order_amount_minor, delivery_fee_minor, currency]
+      properties:
+        id: {type: string, format: uuid}
+        slug: {type: string}
+        name: {type: string}
+        description: {type: string}
+        accepts_orders: {type: boolean}
+        min_order_amount_minor: {type: integer, format: int64}
+        delivery_fee_minor: {type: integer, format: int64}
+        currency: {type: string, example: RUB}
+    MenuItem:
+      type: object
+      required: [id, name, price_minor, currency, is_available]
+      properties:
+        id: {type: string, format: uuid}
+        external_id: {type: string}
+        establishment_id: {type: string, format: uuid}
+        category: {type: string}
+        name: {type: string}
+        description: {type: string}
+        price_minor: {type: integer, format: int64, minimum: 0}
+        currency: {type: string, example: RUB}
+        is_available: {type: boolean}
+        revision: {type: integer, format: int64}
+    PartnerMenuItem:
+      type: object
+      required: [category, name, price_minor, currency, is_available, revision]
+      properties:
+        category: {type: string, minLength: 1}
+        name: {type: string, minLength: 1}
+        description: {type: string}
+        price_minor: {type: integer, format: int64, minimum: 0}
+        currency: {type: string, minLength: 3, maxLength: 3}
+        is_available: {type: boolean}
+        revision: {type: integer, format: int64, minimum: 1}
+    CartItem:
+      type: object
+      required: [menu_item_id, name, price_minor, currency, available, quantity, line_total_minor]
+      properties:
+        menu_item_id: {type: string, format: uuid}
+        name: {type: string}
+        price_minor: {type: integer, format: int64}
+        currency: {type: string}
+        available: {type: boolean}
+        quantity: {type: integer}
+        line_total_minor: {type: integer, format: int64}
+    Cart:
+      type: object
+      required: [items, subtotal_minor]
+      properties:
+        id: {type: string, format: uuid}
+        establishment_id: {type: string, format: uuid}
+        expires_at: {type: string, format: date-time}
+        items: {type: array, items: {$ref: '#/components/schemas/CartItem'}}
+        subtotal_minor: {type: integer, format: int64}
+        currency: {type: string}
+    OrderItem:
+      type: object
+      required: [external_item_id, name, unit_price_minor, quantity, line_total_minor, currency]
+      properties:
+        external_item_id: {type: string}
+        name: {type: string}
+        unit_price_minor: {type: integer, format: int64}
+        quantity: {type: integer}
+        line_total_minor: {type: integer, format: int64}
+        currency: {type: string}
+    Order:
+      type: object
+      required: [id, establishment_id, status, subtotal_minor, delivery_fee_minor, total_minor, currency, delivery_address, created_at, updated_at, items]
+      properties:
+        id: {type: string, format: uuid}
+        establishment_id: {type: string, format: uuid}
+        status:
+          type: string
+          enum: [pending_restaurant, accepted, preparing, ready_for_delivery, delivering, delivered, rejected, cancelled]
+        subtotal_minor: {type: integer, format: int64}
+        delivery_fee_minor: {type: integer, format: int64}
+        total_minor: {type: integer, format: int64}
+        currency: {type: string}
+        delivery_address: {type: object, additionalProperties: true}
+        customer_phone: {type: string}
+        customer_comment: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        items: {type: array, items: {$ref: '#/components/schemas/OrderItem'}}
+    Problem:
+      type: object
+      required: [title, status, code]
+      properties:
+        type: {type: string, format: uri}
+        title: {type: string}
+        status: {type: integer}
+        detail: {type: string}
+        code: {type: string}

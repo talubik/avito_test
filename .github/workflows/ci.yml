@@ -1,0 +1,79 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [services/kitchen, services/demo-restaurant]
+    defaults:
+      run:
+        working-directory: ${{ matrix.service }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.27.x'
+          cache-dependency-path: ${{ matrix.service }}/go.mod
+      - name: Test with race detector
+        run: go test -race ./...
+      - name: Run go vet
+        run: go vet ./...
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)"
+
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Docker Compose configuration
+        run: docker compose config --quiet
+      - name: Check shell scripts
+        run: bash -n tests/e2e/smoke.sh
+      - name: Run golangci-lint
+        run: make lint
+      - name: Lint OpenAPI specifications
+        run: make openapi-lint
+
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [go, quality]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run database and integration tests
+        run: make test-integration
+      - name: Clean up test containers
+        if: always()
+        run: docker compose --profile test down --volumes --remove-orphans
+
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: integration
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and start the complete stack
+        run: docker compose up --build --detach
+      - name: Run end-to-end smoke test
+        run: make smoke
+      - name: Print service logs on failure
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Clean up the stack
+        if: always()
+        run: docker compose down --volumes --remove-orphans

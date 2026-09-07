@@ -1,0 +1,16 @@
+@startuml OrderState
+!theme plain
+title Жизненный цикл заказа
+[*] --> pending_restaurant
+pending_restaurant --> accepted : restaurant accepts
+pending_restaurant --> rejected : restaurant rejects
+pending_restaurant --> cancelled : customer cancels / timeout
+accepted --> preparing
+preparing --> ready_for_delivery
+ready_for_delivery --> delivering
+delivering --> delivered
+rejected --> [*]
+cancelled --> [*]
+delivered --> [*]
+@enduml
+
